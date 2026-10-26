@@ -23,7 +23,7 @@ st.markdown("""
         }
 
         .block-container {
-            padding-top: 2rem !important;
+            padding-top: 3rem !important;
             padding-bottom: 2rem !important;
             max-width: 98% !important;
             padding-left: 1.5rem !important;
@@ -32,7 +32,7 @@ st.markdown("""
 
         .titulo-principal {
             text-align: left;
-            font-size: 2.8rem;
+            font-size: 6rem;
             font-weight: 800;
             color: #111827;
             letter-spacing: -0.5px;
@@ -237,7 +237,7 @@ with c_user_space:
 st.markdown('<div class="contenedor-modulos-centrado">', unsafe_allow_html=True)
 menu_logistica = st.radio(
     "Seleccione el módulo de trabajo:",
-    ("🏭 Control de Inventarios (Lotes)", "💰 Gestión de Cobranzas y Finanzas"),
+    ("💰 Gestión de Cobranzas y Finanzas"),
     horizontal=True,
     label_visibility="visible"
 )
@@ -245,113 +245,160 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown("---")
 
 # ==========================================
-# MÓDULO: CONTROL DE INVENTARIOS Y LOTES
+# MÓDULO 3: FACTURACIÓN Y COBRANZAS
 # ==========================================
-if menu_logistica == "🏭 Control de Inventarios (Lotes)":
-    st.subheader("Registro de Nuevos Lotes de Producto Terminado")
+elif menu_logistica == "💳 Facturación y Cobranzas":
+    st.subheader("Emisión de Facturas y Control de Créditos / Cobranzas")
     
-    try:
-        prod_res = supabase.table("productos").select("codigo, producto, stock_actual").execute()
-        lista_productos = prod_res.data if prod_res.data else []
-    except:
-        lista_productos = []
-
-    with st.container(border=True):
-        if lista_productos:
-            prod_dict = {f"{p['codigo']} - {p['producto']}": p for p in lista_productos}
-            prod_sel = st.selectbox("Seleccione el Producto", options=list(prod_dict.keys()), index=None, placeholder="-- Seleccione producto --")
+    sub_op = st.radio("Seleccione opción de Finanzas", ["Emitir Factura / Guía", "Registrar Abono / Pago", "Estado de Cuentas por Cobrar"], horizontal=True)
+    
+    if sub_op == "Emitir Factura / Guía":
+        with st.container(border=True):
+            st.write("**Generar Comprobante de Salida**")
             
-            if prod_sel:
-                prod_obj = prod_dict[prod_sel]
-                codigo_elegido = prod_obj['codigo']
-                nombre_producto_limpio = prod_obj['producto']
+            try:
+                ped_list_res = supabase.table("pedidos").select("n_pedido, nombre_cliente, total_pedido_importe").execute()
+                pedidos_disponibles = ped_list_res.data if ped_list_res.data else []
+            except:
+                pedidos_disponibles = []
+
+            if pedidos_disponibles:
+                ped_dict_f = {f"{p['n_pedido']} - {p['nombre_cliente']} (S/ {p['total_pedido_importe']:.2f})": p for p in pedidos_disponibles}
+                ped_sel_f = st.selectbox("Seleccione el Pedido Aprobado", options=list(ped_dict_f.keys()), index=None, placeholder="-- Seleccione pedido --")
                 
-                col_l1, col_l2 = st.columns(2)
-                with col_l1:
-                    n_lote_input = st.text_input("Número de Lote", placeholder="Ej. LOTE-2026-001")
-                    cantidad_lote = st.number_input("Cantidad Inicial Producida (Unidades)", min_value=1, value=100)
-                with col_l2:
-                    f_prod = st.date_input("Fecha de Producción", value=date.today())
-                    f_venc = st.date_input("Fecha de Vencimiento", value=date.today())
+                if ped_sel_f:
+                    datos_p_sel = ped_dict_f[ped_sel_f]
+                    
+                    col_fac1, col_fac2 = st.columns(2)
+                    with col_fac1:
+                        n_factura_txt = st.text_input("Número de Factura", placeholder="Ej. F001-00001234")
+                        n_guia_txt = st.text_input("Número de Guía de Remisión", placeholder="Ej. G001-00001234")
+                        cond_credito = st.selectbox("Condición de Crédito", options=["Contado", "Crédito 30 días", "Crédito 45 días", "Crédito 60 días"])
+                    with col_fac2:
+                        transportista_txt = st.text_input("Empresa Transportista (Opcional)", placeholder="Ej. Transportes S.A.")
+                        placa_txt = st.text_input("Placa de Vehículo (Opcional)", placeholder="Ej. ABC-123")
+                        importe_doc = st.number_input("Importe Total (S/)", value=float(datos_p_sel["total_pedido_importe"]))
+
+                    if st.button("💾 Emitir Documento y Registrar Cuentas por Cobrar", use_container_width=True):
+                        if not n_factura_txt:
+                            st.warning("⚠️ Debe ingresar el número de factura.")
+                        else:
+                            try:
+                                dias = 0
+                                if "30" in cond_credito: dias = 30
+                                elif "45" in cond_credito: dias = 45
+                                elif "60" in cond_credito: dias = 60
+                                
+                                f_emi = date.today()
+                                from datetime import timedelta
+                                f_venc = f_emi + timedelta(days=dias)
+                                id_doc = f"DOC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                                payload_doc = {
+                                    "id": id_doc,
+                                    "n_pedido": datos_p_sel["n_pedido"],
+                                    "n_factura": n_factura_txt.strip(),
+                                    "n_guia_remision": n_guia_txt.strip() if n_guia_txt else None,
+                                    "condicion_credito": cond_credito,
+                                    "f_emision": f_emi.isoformat(),
+                                    "f_vencimiento": f_venc.strftime('%Y-%m-%d'),
+                                    "importe_total": float(importe_doc),
+                                    "saldo_pendiente": float(importe_doc),
+                                    "estado_factura": "Por Cobrar",
+                                    "transportista": transportista_txt,
+                                    "vehiculo_placa": placa_txt,
+                                    "generado_por": st.session_state.usuario_actual.get('nombre')
+                                }
+                                
+                                supabase.table("documentos_salida").insert(payload_doc).execute()
+                                st.toast(f"¡Factura {n_factura_txt} emitida con éxito!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al emitir factura: {e}")
+            else:
+                st.warning("No hay pedidos disponibles para facturar.")
+
+    elif sub_op == "Registrar Abono / Pago":
+        st.write("**Registrar Pago o Transferencia Bancaria**")
+        
+        try:
+            doc_res = supabase.table("documentos_salida").select("n_factura, saldo_pendiente, importe_total").gt("saldo_pendiente", 0).execute()
+            docs_pendientes = doc_res.data if doc_res.data else []
+        except:
+            docs_pendientes = []
+
+        if docs_pendientes:
+            doc_dict_p = {f"Factura: {d['n_factura']} (Saldo Pendiente: S/ {d['saldo_pendiente']:.2f})": d for d in docs_pendientes}
+            doc_sel_p = st.selectbox("Seleccione la Factura", options=list(doc_dict_p.keys()), index=None, placeholder="-- Seleccione factura pendiente --")
+            
+            if doc_sel_p:
+                info_d_sel = doc_dict_p[doc_sel_p]
                 
-                if st.button("💾 Registrar Lote en Almacén", use_container_width=True):
-                    if not n_lote_input:
-                        st.warning("⚠️ Ingrese el número de lote.")
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    monto_abono = st.number_input("Monto a Abonar (S/)", min_value=0.01, value=float(info_d_sel["saldo_pendiente"]), step=10.0)
+                    f_pago = st.date_input("Fecha de Transferencia", value=date.today())
+                    hora_pago = st.text_input("Hora de Operación (Opcional)", placeholder="Ej. 14:35")
+                with col_p2:
+                    n_operacion = st.text_input("Número de Operación / Código de Transferencia", placeholder="Ej. OP-987654321")
+                    banco_destino = st.selectbox("Banco Destino", options=["BCP", "BBVA", "Interbank", "Scotiabank", "Cuenta Corriente Vena"])
+                    metodo_pago = st.selectbox("Método de Pago", options=["Transferencia", "Depósito", "Yape/Plin", "Letra"])
+                
+                obs_pago = st.text_input("Observaciones adicionales", placeholder="Ej. Pago parcial acordado")
+
+                if st.button("💾 Registrar Pago en Sistema", use_container_width=True):
+                    if not n_operacion:
+                        st.warning("⚠️ Debe ingresar el número de operación.")
                     else:
                         try:
-                            id_lote_gen = f"LOT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                            payload_lote = {
-                                "id": id_lote_gen,
-                                "codigo_producto": codigo_elegido,
-                                "producto": nombre_producto_limpio,
-                                "n_lote": n_lote_input.strip(),
-                                "cantidad_inicial": int(cantidad_lote),
-                                "f_produccion": f_prod.strftime('%Y-%m-%d'),
-                                "f_vencimiento": f_venc.strftime('%Y-%m-%d'),
-                                "estado_lote": "Disponible"
+                            id_pago = f"PAG-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                            payload_pago = {
+                                "id": id_pago,
+                                "n_factura": info_d_sel["n_factura"],
+                                "monto_pagado": float(monto_abono),
+                                "f_pago": f_pago.strftime('%Y-%m-%d'),
+                                "hora_pago": hora_pago,
+                                "n_operacion": n_operacion.strip(),
+                                "banco_destino": banco_destino,
+                                "metodo_pago": metodo_pago,
+                                "observacion": obs_pago,
+                                "registrado_por": st.session_state.usuario_actual.get('nombre')
                             }
-                            supabase.table("lotes_inventario").insert(payload_lote).execute()
-
-                            # Sumar la cantidad del nuevo lote al stock_actual en la tabla productos
-                            prod_db = supabase.table("productos").select("stock_actual").eq("codigo", codigo_elegido).execute()
-                            if prod_db.data:
-                                stock_actual_db = int(pd.to_numeric(pd.Series([prod_db.data[0].get("stock_actual", 0)]), errors="coerce").fillna(0).iloc[0])
-                                nuevo_stock_total = stock_actual_db + int(cantidad_lote)
-                                supabase.table("productos").update({"stock_actual": nuevo_stock_total}).eq("codigo", codigo_elegido).execute()
-
-                            st.toast(f"¡Lote {n_lote_input} registrado y stock actualizado con éxito!")
+                            
+                            supabase.table("pagos_facturas").insert(payload_pago).execute()
+                            
+                            nuevo_saldo = float(info_d_sel["saldo_pendiente"]) - float(monto_abono)
+                            nuevo_estado = "Pagada" if nuevo_saldo <= 0 else "Por Cobrar"
+                            
+                            supabase.table("documentos_salida").update({
+                                "saldo_pendiente": max(0.0, nuevo_saldo),
+                                "estado_factura": nuevo_estado
+                            }).eq("n_factura", info_d_sel["n_factura"]).execute()
+                            
+                            st.toast(f"¡Pago de S/ {monto_abono:.2f} registrado correctamente!")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Error al guardar lote: {e}")
+                            st.error(f"Error al registrar el pago: {e}")
         else:
-            st.warning("No hay productos cargados en la base de datos.")
+            st.success("🎉 ¡Excelente! No hay facturas pendientes de cobro en este momento.")
 
-    st.markdown("---")
-    st.subheader("Inventario Actual")
-    try:
-        prod_inv_res = supabase.table("productos").select("codigo, producto, stock_actual").execute()
-        if prod_inv_res.data:
-            df_inv = pd.DataFrame(prod_inv_res.data)
-            
-            filtro_busqueda_inv = st.text_input("🔍 Buscar por Código o Descripción de Producto", placeholder="Ej. 3010005 o Gel...", key="input_filtro_inventario")
-            
-            if filtro_busqueda_inv:
-                filtro_lower = filtro_busqueda_inv.lower()
-                df_inv = df_inv[
-                    df_inv["codigo"].astype(str).str.lower().str.contains(filtro_lower) | 
-                    df_inv["producto"].astype(str).str.lower().str.contains(filtro_lower)
-                ]
-
-            df_inv["stock_actual"] = pd.to_numeric(df_inv["stock_actual"], errors="coerce").fillna(0).astype(int)
-
-            cols_disponibles = [col for col in ["codigo", "producto", "stock_actual"] if col in df_inv.columns]
-            df_inv_mostrar = df_inv[cols_disponibles].rename(columns={
-                "codigo": "Código Producto",
-                "producto": "Descripción",
-                "stock_actual": "Stock Actual"
-            })
-
-            st.dataframe(df_inv_mostrar, use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay productos registrados todavía.")
-    except Exception as e:
-        st.error(f"Error al cargar el inventario: {e}")
-
-# ==========================================
-# MÓDULO: GESTIÓN DE COBRANZAS Y FINANZAS
-# ==========================================
-elif menu_logistica == "💰 Gestión de Cobranzas y Finanzas":
-    st.subheader("Panel de Cobranzas y Documentos Pendientes")
-    st.info("💡 Módulo dedicado al control de saldos, registro de abonos y seguimiento de facturación.")
-    
-    try:
-        docs_res = supabase.table("documentos_salida").select("*").execute()
-        lista_docs = docs_res.data if docs_res.data else []
-        
-        if lista_docs:
-            df_docs = pd.DataFrame(lista_docs)
-            st.dataframe(df_docs, use_container_width=True, hide_index=True)
-        else:
-            st.warning("No hay documentos de salida o facturas registradas para cobro.")
-    except Exception as err:
-        st.error(f"Error al cargar documentos de cobranza: {err}")
+    else:
+        st.subheader("Estado de Cuentas por Cobrar")
+        try:
+            docs_all = supabase.table("documentos_salida").select("*").execute()
+            if docs_all.data:
+                df_docs = pd.DataFrame(docs_all.data)
+                
+                total_por_cobrar = df_docs[df_docs["estado_factura"] == "Por Cobrar"]["saldo_pendiente"].sum()
+                total_facturado = df_docs["importe_total"].sum()
+                
+                m1, m2 = st.columns(2)
+                m1.metric("Total Facturado Histórico", f"S/ {total_facturado:,.2f}")
+                m2.metric("Total Pendiente por Cobrar", f"S/ {total_por_cobrar:,.2f}")
+                
+                st.markdown("---")
+                st.dataframe(df_docs, use_container_width=True)
+            else:
+                st.info("No hay documentos de salida registrados.")
+        except Exception as e:
+            st.error(f"Err
