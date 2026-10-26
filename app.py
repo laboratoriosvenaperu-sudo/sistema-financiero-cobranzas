@@ -255,17 +255,25 @@ if menu_logistica == "Emitir Factura / Guía":
         try:
             ped_list_res = supabase.table("pedidos").select("n_pedido, nombre_cliente, total_pedido_importe").execute()
             pedidos_disponibles = ped_list_res.data if ped_list_res.data else []
+            
+            # Consultar facturas ya emitidas para filtrar los pedidos pendientes
+            docs_emitidos_res = supabase.table("documentos_salida").select("n_pedido").execute()
+            pedidos_facturados = {d["n_pedido"] for d in docs_emitidos_res.data} if docs_emitidos_res.data else set()
         except:
             pedidos_disponibles = []
+            pedidos_facturados = set()
 
-        if pedidos_disponibles:
-            ped_dict_f = {f"{p['n_pedido']} - {p['nombre_cliente']} (S/ {p['total_pedido_importe']:.2f})": p for p in pedidos_disponibles}
+        # Filtrar solo los pedidos que NO han sido facturados
+        pedidos_pendientes_factura = [p for p in pedidos_disponibles if p["n_pedido"] not in pedidos_facturados]
+
+        if pedidos_pendientes_factura:
+            ped_dict_f = {f"{p['n_pedido']} - {p['nombre_cliente']} (S/ {p['total_pedido_importe']:.2f})": p for p in pedidos_pendientes_factura}
             ped_sel_f = st.selectbox("Seleccione el Pedido Aprobado", options=list(ped_dict_f.keys()), index=None, placeholder="-- Seleccione pedido --", key="select_pedido_factura")
             
             if ped_sel_f:
                 datos_p_sel = ped_dict_f[ped_sel_f]
                 
-                # Validación previa para verificar si el pedido ya fue facturado
+                # Validación previa por seguridad (por si el pedido fue facturado en paralelo)
                 try:
                     factura_existente_res = supabase.table("documentos_salida").select("n_factura").eq("n_pedido", datos_p_sel["n_pedido"]).execute()
                     pedido_ya_facturado = len(factura_existente_res.data) > 0 if factura_existente_res.data else False
@@ -318,7 +326,6 @@ if menu_logistica == "Emitir Factura / Guía":
                                 supabase.table("documentos_salida").insert(payload_doc).execute()
                                 st.toast(f"¡Factura {n_factura_txt} emitida con éxito!")
                                 
-                                # Limpieza de campos dinámicos mediante un contador o recarga limpia
                                 for key_to_clear in ["select_pedido_factura", "input_num_factura", "input_num_guia", "input_transportista", "input_placa_vehiculo"]:
                                     if key_to_clear in st.session_state:
                                         del st.session_state[key_to_clear]
@@ -326,7 +333,7 @@ if menu_logistica == "Emitir Factura / Guía":
                             except Exception as e:
                                 st.error(f"Error al emitir factura: {e}")
         else:
-            st.warning("No hay pedidos disponibles para facturar.")
+            st.warning("No hay pedidos pendientes de facturación disponibles.")
 
 # ==========================================
 # MÓDULO: REGISTRAR ABONO / PAGO
@@ -336,19 +343,20 @@ elif menu_logistica == "Registrar Abono / Pago":
     st.write("**Registrar Pago o Transferencia Bancaria**")
     
     try:
-        # Consultar documentos junto con el n_pedido para poder asociar el cliente o buscarlo
-        doc_res = supabase.table("documentos_salida").select("n_factura, n_pedido, saldo_pendiente, importe_total").gt("saldo_pendiente", 0).execute()
-        docs_pendientes = doc_res.data if doc_res.data else []
+        doc_res = supabase.table("documentos_salida").select("n_factura, n_pedido, saldo_pendiente, importe_total, estado_factura").execute()
+        docs_todos = doc_res.data if doc_res.data else []
     except:
-        docs_pendientes = []
+        docs_todos = []
 
-    if docs_pendientes:
-        # Cargar nombres de clientes asociados a los pedidos para enriquecer el selector
+    if docs_todos:
         try:
             ped_res_cli = supabase.table("pedidos").select("n_pedido, nombre_cliente").execute()
             map_clientes = {p["n_pedido"]: p["nombre_cliente"] for p in ped_res_cli.data} if ped_res_cli.data else {}
         except:
             map_clientes = {}
+
+        # Filtrar únicamente las facturas que están "Por Cobrar" (saldo pendiente > 0 o estado Por Cobrar)
+        docs_pendientes = [d for d in docs_todos if float(d.get("saldo_pendiente", 0)) > 0 or str(d.get("estado_factura", "")).strip().lower() == "por cobrar"]
 
         doc_dict_p = {}
         for d in docs_pendientes:
@@ -356,63 +364,80 @@ elif menu_logistica == "Registrar Abono / Pago":
             etiqueta_select = f"Factura: {d['n_factura']} | Pedido: {d['n_pedido']} | Cliente: {cli_nombre} (Saldo: S/ {d['saldo_pendiente']:.2f})"
             doc_dict_p[etiqueta_select] = d
 
-        doc_sel_p = st.selectbox("Seleccione la Factura", options=list(doc_dict_p.keys()), index=None, placeholder="-- Seleccione factura pendiente --", key="select_factura_abono")
-        
-        if doc_sel_p:
-            info_d_sel = doc_dict_p[doc_sel_p]
+        if doc_dict_p:
+            doc_sel_p = st.selectbox("Seleccione la Factura", options=list(doc_dict_p.keys()), index=None, placeholder="-- Seleccione factura pendiente --", key="select_factura_abono")
             
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                monto_abono = st.number_input("Monto a Abonar (S/)", min_value=0.01, value=float(info_d_sel["saldo_pendiente"]), step=10.0, key="input_monto_abono")
-                f_pago = st.date_input("Fecha de Transferencia", value=date.today(), key="input_fecha_pago")
-                hora_pago = st.text_input("Hora de Operación (Opcional)", placeholder="Ej. 14:35", key="input_hora_pago")
-            with col_p2:
-                n_operacion = st.text_input("Número de Operación / Código de Transferencia", placeholder="Ej. OP-987654321", key="input_n_operacion")
-                banco_destino = st.selectbox("Banco Destino", options=["BCP", "BBVA", "Interbank", "Scotiabank", "Cuenta Corriente Vena"], key="select_banco_destino")
-                metodo_pago = st.selectbox("Método de Pago", options=["Transferencia", "Depósito", "Yape/Plin", "Letra"], key="select_metodo_pago")
-            
-            obs_pago = st.text_input("Observaciones adicionales", placeholder="Ej. Pago parcial acordado", key="input_obs_pago")
+            if doc_sel_p:
+                info_d_sel = doc_dict_p[doc_sel_p]
+                
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    monto_abono = st.number_input("Monto a Abonar (S/)", min_value=0.01, value=float(info_d_sel["saldo_pendiente"]), step=10.0, key="input_monto_abono")
+                    f_pago = st.date_input("Fecha de Transferencia", value=date.today(), key="input_fecha_pago")
+                    hora_pago = st.text_input("Hora de Operación (Opcional)", placeholder="Ej. 14:35", key="input_hora_pago")
+                with col_p2:
+                    n_operacion = st.text_input("Número de Operación / Código de Transferencia", placeholder="Ej. OP-987654321", key="input_n_operacion")
+                    banco_destino = st.selectbox("Banco Destino", options=["BCP", "BBVA", "Interbank", "Scotiabank", "Cuenta Corriente Vena"], key="select_banco_destino")
+                    metodo_pago = st.selectbox("Método de Pago", options=["Transferencia", "Depósito", "Yape/Plin", "Letra"], key="select_metodo_pago")
+                
+                obs_pago = st.text_input("Observaciones adicionales", placeholder="Ej. Pago parcial acordado", key="input_obs_pago")
 
-            if st.button("💾 Registrar Pago en Sistema", use_container_width=True, key="btn_registrar_pago"):
-                if not n_operacion:
-                    st.warning("⚠️ Debe ingresar el número de operación.")
-                else:
-                    try:
-                        id_pago = f"PAG-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                        payload_pago = {
-                            "id": id_pago,
-                            "n_factura": info_d_sel["n_factura"],
-                            "monto_pagado": float(monto_abono),
-                            "f_pago": f_pago.strftime('%Y-%m-%d'),
-                            "hora_pago": hora_pago,
-                            "n_operacion": n_operacion.strip(),
-                            "banco_destino": banco_destino,
-                            "metodo_pago": metodo_pago,
-                            "observacion": obs_pago,
-                            "registrado_por": st.session_state.usuario_actual.get('nombre')
-                        }
-                        
-                        supabase.table("pagos_facturas").insert(payload_pago).execute()
-                        
-                        nuevo_saldo = float(info_d_sel["saldo_pendiente"]) - float(monto_abono)
-                        nuevo_estado = "Pagada" if nuevo_saldo <= 0 else "Por Cobrar"
-                        
-                        supabase.table("documentos_salida").update({
-                            "saldo_pendiente": max(0.0, nuevo_saldo),
-                            "estado_factura": nuevo_estado
-                        }).eq("n_factura", info_d_sel["n_factura"]).execute()
-                        
-                        st.toast(f"¡Pago de S/ {monto_abono:.2f} registrado correctamente!")
-                        
-                        # Limpieza de campos del formulario de pago
-                        for key_to_clear in ["select_factura_abono", "input_monto_abono", "input_hora_pago", "input_n_operacion", "input_obs_pago"]:
-                            if key_to_clear in st.session_state:
-                                del st.session_state[key_to_clear]
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al registrar el pago: {e}")
+                if st.button("💾 Registrar Pago en Sistema", use_container_width=True, key="btn_registrar_pago"):
+                    if not n_operacion:
+                        st.warning("⚠️ Debe ingresar el número de operación.")
+                    else:
+                        try:
+                            id_pago = f"PAG-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                            payload_pago = {
+                                "id": id_pago,
+                                "n_factura": info_d_sel["n_factura"],
+                                "monto_pagado": float(monto_abono),
+                                "f_pago": f_pago.strftime('%Y-%m-%d'),
+                                "hora_pago": hora_pago,
+                                "n_operacion": n_operacion.strip(),
+                                "banco_destino": banco_destino,
+                                "metodo_pago": metodo_pago,
+                                "observacion": obs_pago,
+                                "registrado_por": st.session_state.usuario_actual.get('nombre')
+                            }
+                            
+                            supabase.table("pagos_facturas").insert(payload_pago).execute()
+                            
+                            nuevo_saldo = float(info_d_sel["saldo_pendiente"]) - float(monto_abono)
+                            nuevo_estado = "Pagada" if nuevo_saldo <= 0 else "Por Cobrar"
+                            
+                            supabase.table("documentos_salida").update({
+                                "saldo_pendiente": max(0.0, nuevo_saldo),
+                                "estado_factura": nuevo_estado
+                            }).eq("n_factura", info_d_sel["n_factura"]).execute()
+                            
+                            st.toast(f"¡Pago de S/ {monto_abono:.2f} registrado correctamente!")
+                            
+                            for key_to_clear in ["select_factura_abono", "input_monto_abono", "input_hora_pago", "input_n_operacion", "input_obs_pago"]:
+                                if key_to_clear in st.session_state:
+                                    del st.session_state[key_to_clear]
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al registrar el pago: {e}")
+        else:
+            # Opción de búsqueda manual por si el usuario busca una factura que ya está pagada / cancelada
+            st.success("🎉 ¡Excelente! No hay facturas pendientes de cobro en este momento.")
+            st.markdown("---")
+            st.write("🔍 **Consulta rápida de factura ya pagada:**")
+            busqueda_factura_pagada = st.text_input("Ingrese N° de Factura o Pedido para ver su estado actual", placeholder="Ej. F001-00001234", key="input_busqueda_factura_pagada")
+            
+            if busqueda_factura_pagada:
+                try:
+                    res_busq = supabase.table("documentos_salida").select("*").or_(f"n_factura.ilike.%{busqueda_factura_pagada.strip()}%,n_pedido.ilike.%{busqueda_factura_pagada.strip()%}").execute()
+                    if res_busq.data:
+                        df_busq = pd.DataFrame(res_busq.data)
+                        st.dataframe(df_busq, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("No se encontró ningún documento con ese número de factura o pedido.")
+                except Exception as err_b:
+                    st.error(f"Error en la búsqueda: {err_b}")
     else:
-        st.success("🎉 ¡Excelente! No hay facturas pendientes de cobro en este momento.")
+        st.success("🎉 ¡Excelente! No hay facturas registradas en el sistema.")
 
 # ==========================================
 # MÓDULO: ESTADO DE CUENTAS POR COBRAR
