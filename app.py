@@ -2,7 +2,7 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 from io import BytesIO
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 # ==========================================
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS VISUALES
@@ -23,7 +23,7 @@ st.markdown("""
         }
 
         .block-container {
-            padding-top: 3rem !important;
+            padding-top: 2rem !important;
             padding-bottom: 2rem !important;
             max-width: 98% !important;
             padding-left: 1.5rem !important;
@@ -32,7 +32,7 @@ st.markdown("""
 
         .titulo-principal {
             text-align: left;
-            font-size: 6rem;
+            font-size: 2.8rem;
             font-weight: 800;
             color: #111827;
             letter-spacing: -0.5px;
@@ -237,7 +237,7 @@ with c_user_space:
 st.markdown('<div class="contenedor-modulos-centrado">', unsafe_allow_html=True)
 menu_logistica = st.radio(
     "Seleccione el módulo de trabajo:",
-    ("💰 Gestión de Cobranzas y Finanzas"),
+    ("💳 Facturación y Cobranzas",),
     horizontal=True,
     label_visibility="visible"
 )
@@ -245,9 +245,9 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown("---")
 
 # ==========================================
-# MÓDULO 3: FACTURACIÓN Y COBRANZAS
+# MÓDULO: FACTURACIÓN Y COBRANZAS
 # ==========================================
-elif menu_logistica == "💳 Facturación y Cobranzas":
+if menu_logistica == "💳 Facturación y Cobranzas":
     st.subheader("Emisión de Facturas y Control de Créditos / Cobranzas")
     
     sub_op = st.radio("Seleccione opción de Finanzas", ["Emitir Factura / Guía", "Registrar Abono / Pago", "Estado de Cuentas por Cobrar"], horizontal=True)
@@ -290,7 +290,6 @@ elif menu_logistica == "💳 Facturación y Cobranzas":
                                 elif "60" in cond_credito: dias = 60
                                 
                                 f_emi = date.today()
-                                from datetime import timedelta
                                 f_venc = f_emi + timedelta(days=dias)
                                 id_doc = f"DOC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -401,4 +400,4 @@ elif menu_logistica == "💳 Facturación y Cobranzas":
             else:
                 st.info("No hay documentos de salida registrados.")
         except Exception as e:
-            st.error(f"Err
+            st.error(f"Error al cargar cuentas por cobrar: {e}")
