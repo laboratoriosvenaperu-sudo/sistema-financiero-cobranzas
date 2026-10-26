@@ -245,6 +245,94 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown("---")
 
 # ==========================================
+# MÓDULO: EMITIR FACTURA / GUÍA
+# ==========================================
+if menu_logistica == "Emitir Factura / Guía":
+    st.subheader("Emisión de Facturas y Control de Créditos / Cobranzas")
+    with st.container(border=True):
+        st.write("**Generar Comprobante de Salida**")
+        
+        try:
+            ped_list_res = supabase.table("pedidos").select("n_pedido, nombre_cliente, total_pedido_importe").execute()
+            pedidos_disponibles = ped_list_res.data if ped_list_res.data else []
+            
+            docs_emitidos_res = supabase.table("documentos_salida").select("n_pedido").execute()
+            pedidos_facturados = {d["n_pedido"] for d in docs_emitidos_res.data} if docs_emitidos_res.data else set()
+        except:
+            pedidos_disponibles = []
+            pedidos_facturados = set()
+
+        pedidos_pendientes_factura = [p for p in pedidos_disponibles if p["n_pedido"] not in pedidos_facturados]
+
+        if pedidos_pendientes_factura:
+            ped_dict_f = {f"{p['n_pedido']} - {p['nombre_cliente']} (S/ {p['total_pedido_importe']:.2f})": p for p in pedidos_pendientes_factura}
+            ped_sel_f = st.selectbox("Seleccione el Pedido Aprobado", options=list(ped_dict_f.keys()), index=None, placeholder="-- Seleccione pedido --", key="select_pedido_factura")
+            
+            if ped_sel_f:
+                datos_p_sel = ped_dict_f[ped_sel_f]
+                
+                try:
+                    factura_existente_res = supabase.table("documentos_salida").select("n_factura").eq("n_pedido", datos_p_sel["n_pedido"]).execute()
+                    pedido_ya_facturado = len(factura_existente_res.data) > 0 if factura_existente_res.data else False
+                except:
+                    pedido_ya_facturado = False
+
+                if pedido_ya_facturado:
+                    st.error(f"⚠️ El pedido `{datos_p_sel['n_pedido']}` ya fue facturado anteriormente.")
+                else:
+                    col_fac1, col_fac2 = st.columns(2)
+                    with col_fac1:
+                        n_factura_txt = st.text_input("Número de Factura", placeholder="Ej. F001-00001234", key="input_num_factura")
+                        n_guia_txt = st.text_input("Número de Guía de Remisión", placeholder="Ej. G001-00001234", key="input_num_guia")
+                        cond_credito = st.selectbox("Condición de Crédito", options=["Contado", "Crédito 30 días", "Crédito 45 días", "Crédito 60 días"], key="select_cond_credito")
+                    with col_fac2:
+                        transportista_txt = st.text_input("Empresa Transportista (Opcional)", placeholder="Ej. Transportes S.A.", key="input_transportista")
+                        placa_txt = st.text_input("Placa de Vehículo (Opcional)", placeholder="Ej. ABC-123", key="input_placa_vehiculo")
+                        importe_doc = st.number_input("Importe Total (S/)", value=float(datos_p_sel["total_pedido_importe"]), key="input_importe_doc")
+
+                    if st.button("💾 Emitir Documento y Registrar Cuentas por Cobrar", use_container_width=True, key="btn_emitir_factura"):
+                        if not n_factura_txt:
+                            st.warning("⚠️ Debe ingresar el número de factura.")
+                        else:
+                            try:
+                                dias = 0
+                                if "30" in cond_credito: dias = 30
+                                elif "45" in cond_credito: dias = 45
+                                elif "60" in cond_credito: dias = 60
+                                
+                                f_emi = date.today()
+                                f_venc = f_emi + timedelta(days=dias)
+                                id_doc = f"DOC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                                payload_doc = {
+                                    "id": id_doc,
+                                    "n_pedido": datos_p_sel["n_pedido"],
+                                    "n_factura": n_factura_txt.strip(),
+                                    "n_guia_remision": n_guia_txt.strip() if n_guia_txt else None,
+                                    "condicion_credito": cond_credito,
+                                    "f_emision": f_emi.isoformat(),
+                                    "f_vencimiento": f_venc.strftime('%Y-%m-%d'),
+                                    "importe_total": float(importe_doc),
+                                    "saldo_pendiente": float(importe_doc),
+                                    "estado_factura": "Por Cobrar",
+                                    "transportista": transportista_txt,
+                                    "vehiculo_placa": placa_txt,
+                                    "generado_por": st.session_state.usuario_actual.get('nombre')
+                                }
+                                
+                                supabase.table("documentos_salida").insert(payload_doc).execute()
+                                st.toast(f"¡Factura {n_factura_txt} emitida con éxito!")
+                                
+                                for key_to_clear in ["select_pedido_factura", "input_num_factura", "input_num_guia", "input_transportista", "input_placa_vehiculo"]:
+                                    if key_to_clear in st.session_state:
+                                        del st.session_state[key_to_clear]
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al emitir factura: {e}")
+        else:
+            st.warning("No hay pedidos pendientes de facturación disponibles.")
+
+# ==========================================
 # MÓDULO: REGISTRAR ABONO / PAGO
 # ==========================================
 elif menu_logistica == "Registrar Abono / Pago":
@@ -264,7 +352,6 @@ elif menu_logistica == "Registrar Abono / Pago":
         except:
             map_clientes = {}
 
-        # Filtrar únicamente las facturas que están "Por Cobrar" (saldo pendiente > 0 o estado Por Cobrar)
         docs_pendientes = [d for d in docs_todos if float(d.get("saldo_pendiente", 0)) > 0 or str(d.get("estado_factura", "")).strip().lower() == "por cobrar"]
 
         doc_dict_p = {}
@@ -347,3 +434,27 @@ elif menu_logistica == "Registrar Abono / Pago":
                     st.error(f"Error en la búsqueda: {err_b}")
     else:
         st.success("🎉 ¡Excelente! No hay facturas registradas en el sistema.")
+
+# ==========================================
+# MÓDULO: ESTADO DE CUENTAS POR COBRAR
+# ==========================================
+elif menu_logistica == "Estado de Cuentas por Cobrar":
+    st.subheader("Estado de Cuentas por Cobrar")
+    try:
+        docs_all = supabase.table("documentos_salida").select("*").execute()
+        if docs_all.data:
+            df_docs = pd.DataFrame(docs_all.data)
+            
+            total_por_cobrar = df_docs[df_docs["estado_factura"] == "Por Cobrar"]["saldo_pendiente"].sum()
+            total_facturado = df_docs["importe_total"].sum()
+            
+            m1, m2 = st.columns(2)
+            m1.metric("Total Facturado Histórico", f"S/ {total_facturado:,.2f}")
+            m2.metric("Total Pendiente por Cobrar", f"S/ {total_por_cobrar:,.2f}")
+            
+            st.markdown("---")
+            st.dataframe(df_docs, use_container_width=True)
+        else:
+            st.info("No hay documentos de salida registrados.")
+    except Exception as e:
+        st.error(f"Error al cargar cuentas por cobrar: {e}")
