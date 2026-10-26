@@ -260,22 +260,22 @@ if menu_logistica == "Emitir Factura / Guía":
 
         if pedidos_disponibles:
             ped_dict_f = {f"{p['n_pedido']} - {p['nombre_cliente']} (S/ {p['total_pedido_importe']:.2f})": p for p in pedidos_disponibles}
-            ped_sel_f = st.selectbox("Seleccione el Pedido Aprobado", options=list(ped_dict_f.keys()), index=None, placeholder="-- Seleccione pedido --")
+            ped_sel_f = st.selectbox("Seleccione el Pedido Aprobado", options=list(ped_dict_f.keys()), index=None, placeholder="-- Seleccione pedido --", key="select_pedido_factura")
             
             if ped_sel_f:
                 datos_p_sel = ped_dict_f[ped_sel_f]
                 
                 col_fac1, col_fac2 = st.columns(2)
                 with col_fac1:
-                    n_factura_txt = st.text_input("Número de Factura", placeholder="Ej. F001-00001234")
-                    n_guia_txt = st.text_input("Número de Guía de Remisión", placeholder="Ej. G001-00001234")
-                    cond_credito = st.selectbox("Condición de Crédito", options=["Contado", "Crédito 30 días", "Crédito 45 días", "Crédito 60 días"])
+                    n_factura_txt = st.text_input("Número de Factura", placeholder="Ej. F001-00001234", key="input_num_factura")
+                    n_guia_txt = st.text_input("Número de Guía de Remisión", placeholder="Ej. G001-00001234", key="input_num_guia")
+                    cond_credito = st.selectbox("Condición de Crédito", options=["Contado", "Crédito 30 días", "Crédito 45 días", "Crédito 60 días"], key="select_cond_credito")
                 with col_fac2:
-                    transportista_txt = st.text_input("Empresa Transportista (Opcional)", placeholder="Ej. Transportes S.A.")
-                    placa_txt = st.text_input("Placa de Vehículo (Opcional)", placeholder="Ej. ABC-123")
-                    importe_doc = st.number_input("Importe Total (S/)", value=float(datos_p_sel["total_pedido_importe"]))
+                    transportista_txt = st.text_input("Empresa Transportista (Opcional)", placeholder="Ej. Transportes S.A.", key="input_transportista")
+                    placa_txt = st.text_input("Placa de Vehículo (Opcional)", placeholder="Ej. ABC-123", key="input_placa_vehiculo")
+                    importe_doc = st.number_input("Importe Total (S/)", value=float(datos_p_sel["total_pedido_importe"]), key="input_importe_doc")
 
-                if st.button("💾 Emitir Documento y Registrar Cuentas por Cobrar", use_container_width=True):
+                if st.button("💾 Emitir Documento y Registrar Cuentas por Cobrar", use_container_width=True, key="btn_emitir_factura"):
                     if not n_factura_txt:
                         st.warning("⚠️ Debe ingresar el número de factura.")
                     else:
@@ -307,6 +307,11 @@ if menu_logistica == "Emitir Factura / Guía":
                             
                             supabase.table("documentos_salida").insert(payload_doc).execute()
                             st.toast(f"¡Factura {n_factura_txt} emitida con éxito!")
+                            
+                            # Limpieza de campos dinámicos mediante un contador o recarga limpia
+                            for key_to_clear in ["select_pedido_factura", "input_num_factura", "input_num_guia", "input_transportista", "input_placa_vehiculo"]:
+                                if key_to_clear in st.session_state:
+                                    del st.session_state[key_to_clear]
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error al emitir factura: {e}")
@@ -328,24 +333,24 @@ elif menu_logistica == "Registrar Abono / Pago":
 
     if docs_pendientes:
         doc_dict_p = {f"Factura: {d['n_factura']} (Saldo Pendiente: S/ {d['saldo_pendiente']:.2f})": d for d in docs_pendientes}
-        doc_sel_p = st.selectbox("Seleccione la Factura", options=list(doc_dict_p.keys()), index=None, placeholder="-- Seleccione factura pendiente --")
+        doc_sel_p = st.selectbox("Seleccione la Factura", options=list(doc_dict_p.keys()), index=None, placeholder="-- Seleccione factura pendiente --", key="select_factura_abono")
         
         if doc_sel_p:
             info_d_sel = doc_dict_p[doc_sel_p]
             
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                monto_abono = st.number_input("Monto a Abonar (S/)", min_value=0.01, value=float(info_d_sel["saldo_pendiente"]), step=10.0)
-                f_pago = st.date_input("Fecha de Transferencia", value=date.today())
-                hora_pago = st.text_input("Hora de Operación (Opcional)", placeholder="Ej. 14:35")
+                monto_abono = st.number_input("Monto a Abonar (S/)", min_value=0.01, value=float(info_d_sel["saldo_pendiente"]), step=10.0, key="input_monto_abono")
+                f_pago = st.date_input("Fecha de Transferencia", value=date.today(), key="input_fecha_pago")
+                hora_pago = st.text_input("Hora de Operación (Opcional)", placeholder="Ej. 14:35", key="input_hora_pago")
             with col_p2:
-                n_operacion = st.text_input("Número de Operación / Código de Transferencia", placeholder="Ej. OP-987654321")
-                banco_destino = st.selectbox("Banco Destino", options=["BCP", "BBVA", "Interbank", "Scotiabank", "Cuenta Corriente Vena"])
-                metodo_pago = st.selectbox("Método de Pago", options=["Transferencia", "Depósito", "Yape/Plin", "Letra"])
+                n_operacion = st.text_input("Número de Operación / Código de Transferencia", placeholder="Ej. OP-987654321", key="input_n_operacion")
+                banco_destino = st.selectbox("Banco Destino", options=["BCP", "BBVA", "Interbank", "Scotiabank", "Cuenta Corriente Vena"], key="select_banco_destino")
+                metodo_pago = st.selectbox("Método de Pago", options=["Transferencia", "Depósito", "Yape/Plin", "Letra"], key="select_metodo_pago")
             
-            obs_pago = st.text_input("Observaciones adicionales", placeholder="Ej. Pago parcial acordado")
+            obs_pago = st.text_input("Observaciones adicionales", placeholder="Ej. Pago parcial acordado", key="input_obs_pago")
 
-            if st.button("💾 Registrar Pago en Sistema", use_container_width=True):
+            if st.button("💾 Registrar Pago en Sistema", use_container_width=True, key="btn_registrar_pago"):
                 if not n_operacion:
                     st.warning("⚠️ Debe ingresar el número de operación.")
                 else:
@@ -375,6 +380,11 @@ elif menu_logistica == "Registrar Abono / Pago":
                         }).eq("n_factura", info_d_sel["n_factura"]).execute()
                         
                         st.toast(f"¡Pago de S/ {monto_abono:.2f} registrado correctamente!")
+                        
+                        # Limpieza de campos del formulario de pago
+                        for key_to_clear in ["select_factura_abono", "input_monto_abono", "input_hora_pago", "input_n_operacion", "input_obs_pago"]:
+                            if key_to_clear in st.session_state:
+                                del st.session_state[key_to_clear]
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al registrar el pago: {e}")
