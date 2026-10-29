@@ -1,5 +1,5 @@
 import streamlit as st
-from supabase import create_client
+from supabase import create_client, Client
 import pandas as pd
 from io import BytesIO
 from datetime import datetime, date, timedelta
@@ -148,11 +148,10 @@ st.markdown("""
 # ==========================================
 # CONFIGURACIÓN DE CREDENCIALES DE SUPABASE
 # ==========================================
-SUPABASE_URL = "https://fpktbiatogbvawnmnpam.supabase.co"
-SUPABASE_KEY = "sb_publishable_9iIKNYvLoXJpqJIsmYAX9g_GO-wnx5p"
-
 try:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    SUPABASE_URL = st.secrets["supabase"]["url"]
+    SUPABASE_KEY = st.secrets["supabase"]["key"]
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     st.error(f"Error en la inicialización de Supabase: {e}")
 
